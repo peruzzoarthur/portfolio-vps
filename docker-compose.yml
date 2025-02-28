@@ -1,0 +1,67 @@
+services:
+  reverse-proxy:
+    image: traefik:v3.1
+    command:
+      - '--api.insecure=true'
+      - '--providers.docker'
+      - '--entrypoints.web.address=:80'
+    ports:
+      - '80:80'
+      - '8080:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - traefik-network
+
+  frontend:
+    build:
+      context: ./portfolio-front
+      args:
+        - VITE_SERVER_URL=http://api.ozzurep.tech
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.frontend.rule=Host(`ozzurep.tech`)'
+      - 'traefik.http.services.frontend.loadbalancer.server.port=80'
+    environment:
+      - VITE_SERVER_URL=http://api.ozzurep.tech
+    restart: unless-stopped
+    networks:
+      - traefik-network
+
+  backend:
+    build: ./portfolio-back
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.backend.rule=Host(`api.ozzurep.tech`)'
+      - 'traefik.http.services.backend.loadbalancer.server.port=3000'
+    environment:
+      - DATABASE_URL=postgresql://ozzu:marij@postgres:5432/portfolio
+      - IS_LOCAL=true
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ozzu
+      POSTGRES_PASSWORD: marij
+      POSTGRES_DB: portfolio
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - traefik-network
+    labels:
+      - 'traefik.enable=false'
+
+networks:
+  traefik-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

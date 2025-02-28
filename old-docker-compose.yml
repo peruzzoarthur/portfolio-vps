@@ -1,0 +1,48 @@
+version: "3.8"
+
+networks:
+  traefik-network:
+    driver: bridge
+
+services:
+  reverse-proxy:
+    image: traefik:v3.1
+    command:
+      - '--api.insecure=true'
+      - '--providers.docker'
+      - '--entrypoints.web.address=:80' # Ensure HTTP entrypoint is defined
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - traefik-network
+
+  frontend:
+    build:
+      context: ./portfolio-front
+      args:
+        - VITE_SERVER_URL=http://api.ozzurep.tech # Use the correct API URL
+    labels:
+      - "traefik.http.routers.frontend.rule=Host(`ozzurep.tech`)"
+    environment:
+      - VITE_SERVER_URL=http://api.ozzurep.tech
+    restart: unless-stopped
+    networks:
+      - traefik-network
+
+  backend:
+    build: ./portfolio-back
+    ports:
+      - "3000:3000"  # Allows direct access via ozzurep.tech:3000 (optional)
+    labels:
+      - "traefik.http.routers.backend.rule=Host(`api.ozzurep.tech`)"
+      - "traefik.http.services.backend.loadbalancer.server.port=3000"
+    environment:
+      - DATABASE_URL=postgresql://ozzu:marij@ozzurep.tech:5436/portfolio
+      - IS_LOCAL=true
+    restart: unless-stopped
+    networks:
+      - traefik-network
+
