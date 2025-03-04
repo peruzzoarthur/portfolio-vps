@@ -4,18 +4,22 @@ FROM node:18
 # Create app directory
 WORKDIR /usr/src/app
 
-# A wildcard is used to ensure both package.json AND package-lock.json are copied
+# Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install app dependencies
+# Install dependencies
 RUN npm install
 
-# Bundle app source
+# Generate Prisma Client
+COPY prisma ./prisma
+RUN npx prisma generate
+
+# Copy rest of the app
 COPY . .
 
-# Creates a "dist" folder with the production build
+# Build the project
 RUN npm run build
 
-# Start the server using the production build
+# Start the server
 CMD [ "node", "dist/main.js" ]
 
