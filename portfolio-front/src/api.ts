@@ -1,5 +1,4 @@
 import axios from 'axios';
 
-export const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_SERVER_URL,
-})
+const API_URL = window.APP_CONFIG?.API_URL || 'https://api.ozzurep.tech';
+export const axiosInstance = axios.create({ baseURL: API_URL });
