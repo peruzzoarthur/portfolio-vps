@@ -1,7 +1,7 @@
 ---
 services:
-  reverse-proxy:
-    image: traefik:v3.0
+  traefik:
+    image: docker.io/library/traefik:v3.3.4
     ports:
       - '80:80'
       - '443:443'
@@ -9,10 +9,19 @@ services:
     environment:
       - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_DNS_API_TOKEN}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # Docker socket to watch for Traefik
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./config/:/etc/traefik/:ro
       - ./certs/:/var/traefik/certs/:rw
-
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.dashboard.rule=Host(`traefik.ozzurep.tech`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))'
+      - 'traefik.http.routers.dashboard.entrypoints=websecure'
+      - 'traefik.http.routers.dashboard.service=api@internal'
+      - 'traefik.http.routers.dashboard.middlewares=auth'
+      - 'traefik.http.middlewares.auth.basicauth.users=maria:$$2y$$05$$DFC5lBelqG4jS7i5gJG/bep/0fSsSgz.vdT9aXDOxSJtIu36WjUDK'
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.addEntryPointsLabels=true"
+      - "--metrics.prometheus.addServicesLabels=true"
     networks:
       - traefik-network
     restart: unless-stopped
@@ -33,17 +42,23 @@ services:
 
   backend:
     build: ./portfolio-back
+    ports:
+      - '3333:3333'
     labels:
       - 'traefik.enable=true'
       - 'traefik.http.routers.backend.rule=Host(`api.ozzurep.tech`)'
       - 'traefik.http.routers.backend.entrypoints=websecure'
       - 'traefik.http.routers.backend.tls=true'
       - 'traefik.http.routers.backend.tls.certresolver=cloudflare'
-      - 'traefik.http.services.backend.loadbalancer.server.port=3000'
+      - 'traefik.http.services.backend.loadbalancer.server.port=3333'
     environment:
       - DATABASE_URL=postgresql://ozzu:marij@postgres:5432/portfolio
       - IS_LOCAL=true
+      - PORT=3333
     restart: unless-stopped
+    deploy:
+      mode: replicate
+      replicas: 1 
     networks:
       - traefik-network
     depends_on:
@@ -64,6 +79,114 @@ services:
       - traefik-network
     labels:
       - 'traefik.enable=false'
+ 
+  # Grafana - Visualization & Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=securepassword
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    depends_on:
+      - prometheus
+      - loki
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.grafana.rule=Host(`grafana.ozzurep.tech`)'
+      - 'traefik.http.routers.grafana.entrypoints=websecure'
+      - 'traefik.http.routers.grafana.tls=true'
+      - 'traefik.http.routers.grafana.tls.certresolver=cloudflare'
+      - 'traefik.http.services.grafana.loadbalancer.server.port=3000'
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.prometheus.rule=Host(`prometheus.ozzurep.tech`)'
+      - 'traefik.http.routers.prometheus.entrypoints=websecure'
+      - 'traefik.http.routers.prometheus.tls=true'
+      - 'traefik.http.routers.prometheus.tls.certresolver=cloudflare'
+      - 'traefik.http.services.prometheus.loadbalancer.server.port=9090'
+      - 'traefik.http.routers.prometheus.middlewares=auth'
+
+  # Node Exporter - System Metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - 'traefik.enable=false'
+
+  # cAdvisor - Container Metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - 'traefik.enable=false'
+
+  # Loki - Log Aggregation
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    labels:
+      - 'traefik.enable=false'
+
+  # Promtail - Log Collection
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/log:/var/log
+      - ./config/promtail/promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - traefik-network
+    depends_on:
+      - loki
+    labels:
+      - 'traefik.enable=false'
+
 
 networks:
   traefik-network:
@@ -71,8 +194,6 @@ networks:
 
 volumes:
   postgres_data:
-  # traefik-certs:
-  #   driver: local
-  # traefik-logs:
-  #   driver: local
-  #
+  grafana_data:
+  prometheus_data:
+  loki_data:

@@ -1,9 +1,11 @@
----
 global:
   checkNewVersion: false
   sendAnonymousUsage: false
+
 log:
-  level: DEBUG
+  level: INFO # Changed from DEBUG to reduce noise
+  format: json # Optional: for better log parsing
+
 entryPoints:
   web:
     address: ':80'
@@ -12,19 +14,32 @@ entryPoints:
         entryPoint:
           to: websecure
           scheme: https
+          permanent: true # Permanent redirect
   websecure:
     address: ':443'
     http:
       tls:
         certResolver: cloudflare
+        # Optional: Minimum TLS version
+        options: default
+
+# Add TLS Options for stronger security
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
 certificatesResolvers:
   cloudflare:
     acme:
       email: peruzzoarthur@gmail.com
       storage: /var/traefik/certs/cloudflare-acme.json
-      # caServer: https://acme-v02.api.letsencrypt.org/directory # prod (default)
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory # staging
+      caServer: https://acme-v02.api.letsencrypt.org/directory
       keyType: EC256
       dnsChallenge:
         provider: cloudflare
@@ -32,15 +47,16 @@ certificatesResolvers:
           - '1.1.1.1:53'
           - '8.8.8.8:53'
 
+# Secure API Access
 api:
   dashboard: true
-  insecure: true
-  debug: true
+  insecure: false # Disable insecure access
+  # debug: false    # Disable debug mode in production
 
 providers:
   docker:
     endpoint: 'unix:///var/run/docker.sock'
     exposedByDefault: false
-    network: traefik-network # Optional; Only use the "proxy" Docker network, even if containers are on multiple networks.
+
 serversTransport:
-  insecureSkipVerify: true
+  insecureSkipVerify: false # Be cautious with this setting
