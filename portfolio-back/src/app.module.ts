@@ -9,10 +9,10 @@ import { ImagesModule } from './images/images.module';
 import { SeriesModule } from './series/series.module';
 import { AuthorsModule } from './authors/authors.module';
 import { CoreModule } from './core/core.module';
-import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 import { HealthModule } from './health/health.module';
 import { metricProviders } from './prometheus/metrics';
 import { MetricsMiddleware } from './prometheus/metrics.middleware';
+import { PrometheusModule } from './prometheus/prometheus.module';
 
 @Module({
   imports: [
